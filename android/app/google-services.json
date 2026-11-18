@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "136023349434",
+    "firebase_url": "https://scan2chat-e7e20-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "scan2chat-e7e20",
+    "storage_bucket": "scan2chat-e7e20.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:136023349434:android:87ecdc8c651b98d371ca83",
+        "android_client_info": {
+          "package_name": "com.iwebs.scan2chat"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "136023349434-2tfucobkvfhl9q0e7bis10k53o6o4e9b.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.iwebs.scan2chat",
+            "certificate_hash": "a6e37086f34f54e4e07b03d79fbc7a63fa69dff0"
+          }
+        },
+        {
+          "client_id": "136023349434-qe0glb21900273k9inojg728mg4tveed.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.iwebs.scan2chat",
+            "certificate_hash": "847fb13a4bec52fc6175f26cb53b6f6aa26630d0"
+          }
+        },
+        {
+          "client_id": "136023349434-btvlhto1ok0vtnmgdp0ksne58e9k0hkc.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyASXTUoEu7wVlTLFsG-CS4sSJ9rMnrytnE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "136023349434-btvlhto1ok0vtnmgdp0ksne58e9k0hkc.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "136023349434-qlogcid83mieg76lq66l3agk81v4mvul.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.iwebs.scan2chat"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

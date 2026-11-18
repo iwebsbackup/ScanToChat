@@ -1,0 +1,17 @@
+# Public APK folder. Only *.apk served, everything else denied. No listing, no script exec.
+Options -Indexes -ExecCGI
+AddType application/vnd.android.package-archive .apk
+
+<IfModule mod_authz_core.c>
+    Require all denied
+    <FilesMatch "\.apk$">
+        Require all granted
+    </FilesMatch>
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+    <FilesMatch "\.apk$">
+        Allow from all
+    </FilesMatch>
+</IfModule>

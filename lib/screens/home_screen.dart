@@ -1,10 +1,21 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:hugeicons/hugeicons.dart';
+import '../services/push_service.dart';
+import '../services/auth_service.dart';
 import '../models/contact_entry.dart';
 import '../services/card_parser.dart';
+import '../services/contacts_service.dart';
+import '../services/csv_export_service.dart';
+import '../services/imgbb_service.dart';
 import '../services/phone_extractor.dart';
+import '../services/scan_sync_service.dart';
 import '../services/storage_service.dart';
 import '../services/whatsapp_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/edit_entry_dialog.dart';
 import '../widgets/entry_tile.dart';
@@ -30,10 +41,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _loadEntries();
+    final uid = AuthService.instance.currentUser?.uid;
+    if (uid != null) PushService.registerUser(uid);
+    PushService.homeOpened();
   }
 
   @override
   void dispose() {
+    PushService.homeClosed();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -51,12 +66,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   /// Scanner found a card: open WhatsApp first, then save the entry.
-  Future<void> _onDetected(CardInfo info) async {
+  /// Numbers not seen in the last [_cooldown]. Pure check - changes nothing.
+  List<String> _freshNumbers(CardInfo info) {
+    final now = DateTime.now();
+    return info.numbers
+        .where((n) => _recent[n] == null || now.difference(_recent[n]!) > _cooldown)
+        .toList();
+  }
+
+  bool _canCapture(CardInfo info) => !_handling && _freshNumbers(info).isNotEmpty;
+
+  /// Upload card photo to imgbb, then attach URL to users/{uid}/scans/{scanId}.
+  Future<void> _uploadPhoto(File photo, String scanId) async {
+    try {
+      final url = await ImgbbService.upload(photo);
+      if (url != null) await ScanSyncService.attachPhoto(scanId, url);
+    } finally {
+      try {
+        await photo.delete();
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _onDetected(CardInfo info, File? photo) async {
     if (_handling) return;
 
     final now = DateTime.now();
     _recent.removeWhere((_, t) => now.difference(t) > _cooldown);
-    final fresh = info.numbers.where((n) => !_recent.containsKey(n)).toList();
+    final fresh = _freshNumbers(info);
     if (fresh.isEmpty) return;
 
     _handling = true;
@@ -76,6 +113,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ))
           .toList();
 
+      // 0) Cloud: save scan data + count +1 (instant, no waiting), upload photo in background.
+      final scanId = ScanSyncService.recordScan(info, newEntries);
+      if (photo != null) {
+        if (scanId != null) {
+          unawaited(_uploadPhoto(photo, scanId));
+        } else {
+          unawaited(photo.delete().catchError((_) => photo));
+        }
+      }
+
       // 1) Open WhatsApp first (only when exactly one number was found).
       Future<bool>? opening;
       if (newEntries.length == 1) {
@@ -86,7 +133,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       //    updated and moved to the top - no duplicate is created.
       final saved = <ContactEntry>[];
       for (final entry in newEntries) {
-        saved.add(await StorageService.upsert(entry));
+        var s = await StorageService.upsert(entry);
+        // Save to phone contacts (only once per number).
+        if (!s.savedToPhone && await ContactsService.saveToPhone(s)) {
+          s = ContactEntry(
+            id: s.id,
+            number: s.number,
+            display: s.display,
+            name: s.name,
+            email: s.email,
+            scannedAt: s.scannedAt,
+            savedToPhone: true,
+          );
+          await StorageService.update(s);
+        }
+        saved.add(s);
       }
       if (mounted) {
         setState(() {
@@ -164,6 +225,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       name: result.name,
       email: result.email,
       scannedAt: entry.scannedAt,
+      savedToPhone: entry.savedToPhone,
     );
     await StorageService.update(updated);
     setState(() {
@@ -183,7 +245,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: const Text('Delete', style: TextStyle(color: AppColors.red)),
           ),
         ],
       ),
@@ -200,6 +262,54 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  Future<void> _exportCsv() async {
+    if (_entries.isEmpty) {
+      _showMessage('No contacts to export');
+      return;
+    }
+    try {
+      await CsvExportService.exportAndShare(_entries);
+    } catch (e) {
+      _showMessage('Export failed: $e');
+    }
+  }
+
+  /// Saves every not-yet-saved scanned contact into the phone's contacts.
+  Future<void> _saveAllToPhone() async {
+    final pending = _entries.where((e) => !e.savedToPhone).toList();
+    if (_entries.isEmpty) {
+      _showMessage('No contacts to save');
+      return;
+    }
+    if (pending.isEmpty) {
+      _showMessage('All contacts already saved');
+      return;
+    }
+    _showMessage('Saving ${pending.length} contacts...');
+    try {
+      final (saved, failed) = await ContactsService.saveAllToPhone(pending);
+      for (final e in saved) {
+        await StorageService.update(ContactEntry(
+          id: e.id,
+          number: e.number,
+          display: e.display,
+          name: e.name,
+          email: e.email,
+          scannedAt: e.scannedAt,
+          savedToPhone: true,
+        ));
+      }
+      await _loadEntries();
+      _showMessage(failed == 0
+          ? '${saved.length} contacts saved to phone'
+          : '${saved.length} saved, $failed failed');
+    } on StateError {
+      _showMessage('Contacts permission denied');
+    } catch (e) {
+      _showMessage('Save failed: $e');
+    }
+  }
+
   Future<void> _clearHistory() async {
     await StorageService.clearAll();
     setState(() => _entries = []);
@@ -208,8 +318,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    const iconColor = AppColors.black;
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: Colors.white,
+        foregroundColor: AppColors.black,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        elevation: 0,
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        titleTextStyle: const TextStyle(
+          color: AppColors.black,
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(height: 1, color: const Color(0xFFEAE6E6)),
+        ),
+        leading: Builder(
+          builder: (ctx) => IconButton(
+            tooltip: 'Menu',
+            icon: HugeIcon(
+              icon: HugeIcons.strokeRoundedMenu02,
+              size: 24.0,
+              color: iconColor,
+              strokeWidth: 1.5,
+            ),
+            onPressed: () => Scaffold.of(ctx).openDrawer(),
+          ),
+        ),
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -222,8 +360,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             const Text('Scan2Chat'),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Save all to phone contacts',
+            icon: HugeIcon(
+              icon: HugeIcons.strokeRoundedSave,
+              size: 24.0,
+              color: iconColor,
+              strokeWidth: 1.5,
+            ),
+            onPressed: _saveAllToPhone,
+          ),
+          IconButton(
+            tooltip: 'Export contacts (CSV)',
+            icon: HugeIcon(
+              icon: HugeIcons.strokeRoundedArrowDown03,
+              size: 24.0,
+              color: iconColor,
+              strokeWidth: 1.5,
+            ),
+            onPressed: _exportCsv,
+          ),
+        ],
       ),
-      drawer: AppDrawer(totalScanned: _entries.length, onClearHistory: _clearHistory),
+      drawer: AppDrawer(
+        totalScanned: _entries.length,
+        onClearHistory: _clearHistory,
+        onExportCsv: _exportCsv,
+      ),
       body: Column(
         children: [
           // Live scanner, always running in the middle
@@ -231,7 +395,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             flex: 5,
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: LiveScanner(onDetected: _onDetected),
+              child: LiveScanner(onDetected: _onDetected, canCapture: _canCapture),
             ),
           ),
           const Divider(height: 1),
@@ -249,7 +413,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       const _SectionHeader(
                         text: 'Successfully Scanned',
                         icon: Icons.check_circle,
-                        color: Color(0xFF25D366),
+                        color: AppColors.red,
                       ),
                       ..._entries.map(
                         (entry) => EntryTile(

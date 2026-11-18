@@ -5,6 +5,7 @@ class ContactEntry {
   final String? name; // optional, read from the card
   final String? email; // optional, read from the card
   final DateTime scannedAt;
+  final bool savedToPhone; // already added to phone contacts?
 
   ContactEntry({
     required this.id,
@@ -13,6 +14,7 @@ class ContactEntry {
     this.name,
     this.email,
     required this.scannedAt,
+    this.savedToPhone = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -22,6 +24,7 @@ class ContactEntry {
         'name': name,
         'email': email,
         'scannedAt': scannedAt.toIso8601String(),
+        'savedToPhone': savedToPhone,
       };
 
   factory ContactEntry.fromJson(Map<String, dynamic> json) => ContactEntry(
@@ -31,5 +34,6 @@ class ContactEntry {
         name: json['name'], // null for old entries
         email: json['email'], // null for old entries
         scannedAt: DateTime.parse(json['scannedAt']),
+        savedToPhone: json['savedToPhone'] ?? false, // false for old entries
       );
 }

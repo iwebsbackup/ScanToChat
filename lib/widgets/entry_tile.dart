@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/contact_entry.dart';
+import '../theme/app_theme.dart';
 
 enum EntryAction { view, edit, delete }
 
@@ -30,7 +31,7 @@ class EntryTile extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: ListTile(
         leading: const CircleAvatar(
-          backgroundColor: Color(0xFF25D366),
+          backgroundColor: AppColors.red,
           child: Icon(Icons.chat, color: Colors.white),
         ),
         // Number is always the highlight (title).
@@ -54,7 +55,7 @@ class EntryTile extends StatelessWidget {
             PopupMenuItem(value: EntryAction.edit, child: Text('Edit')),
             PopupMenuItem(
               value: EntryAction.delete,
-              child: Text('Delete', style: TextStyle(color: Colors.red)),
+              child: Text('Delete', style: TextStyle(color: AppColors.red)),
             ),
           ],
         ),

@@ -8,13 +8,18 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../services/card_parser.dart';
 import '../services/ocr_service.dart';
+import '../theme/app_theme.dart';
 
 /// Always-running live scanner (like a UPI scanner).
 /// When the same valid number is read in 2 consecutive frames -> onDetected.
 class LiveScanner extends StatefulWidget {
-  final void Function(CardInfo info) onDetected;
+  /// [photo] = picture of the card taken automatically at detection (null if capture failed).
+  final void Function(CardInfo info, File? photo) onDetected;
 
-  const LiveScanner({super.key, required this.onDetected});
+  /// Return false to skip this detection (e.g. cooldown) - no photo is taken then.
+  final bool Function(CardInfo info)? canCapture;
+
+  const LiveScanner({super.key, required this.onDetected, this.canCapture});
 
   @override
   State<LiveScanner> createState() => _LiveScannerState();
@@ -181,7 +186,10 @@ class _LiveScannerState extends State<LiveScanner> with WidgetsBindingObserver {
         );
         _lastKey = null;
         _lastInfo = null;
-        if (mounted) widget.onDetected(merged);
+        if (!mounted) return;
+        if (widget.canCapture?.call(merged) == false) return;
+        final photo = await _capturePhoto();
+        if (mounted) widget.onDetected(merged, photo);
       } else {
         // Seen once - confirm in one more frame to avoid wrong OCR reads.
         _lastKey = key;
@@ -191,6 +199,18 @@ class _LiveScannerState extends State<LiveScanner> with WidgetsBindingObserver {
       // ignore a single failed frame
     } finally {
       _busy = false;
+    }
+  }
+
+  /// Takes a still photo of the card (no UI, no sound). Null if it fails.
+  Future<File?> _capturePhoto() async {
+    final c = _controller;
+    if (c == null || !c.value.isInitialized || c.value.isTakingPicture) return null;
+    try {
+      final shot = await c.takePicture().timeout(const Duration(seconds: 5));
+      return File(shot.path);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -259,7 +279,7 @@ class _LiveScannerState extends State<LiveScanner> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    const green = Color(0xFF25D366);
+    const green = AppColors.red;
     final c = _controller;
 
     return ClipRRect(

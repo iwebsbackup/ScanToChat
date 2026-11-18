@@ -36,6 +36,7 @@ class StorageService {
           name: keep.name ?? e.name,
           email: keep.email ?? e.email,
           scannedAt: keep.scannedAt,
+          savedToPhone: keep.savedToPhone || e.savedToPhone,
         );
       }
     }
@@ -61,6 +62,7 @@ class StorageService {
         name: old.name ?? incoming.name,
         email: old.email ?? incoming.email,
         scannedAt: incoming.scannedAt,
+        savedToPhone: old.savedToPhone,
       );
     }
     all.insert(0, result);
